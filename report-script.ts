@@ -24,7 +24,9 @@ function main(workbook: ExcelScript.Workbook) {
   updateHeader2_CollectPeriod(dest, values);
 
   // 4) Type 아래 라벨 행 처리
-  clearRightValuesAndFillGrayByTypeLabels(dest, "#D9D9D9", texts);
+  // ✅ values도 함께 전달: 지워진 셀을 in-memory에서도 ""로 반영
+  //    → zeroOutNumbersByRows가 지워진 셀에 0을 다시 쓰는 버그 방지
+  clearRightValuesAndFillGrayByTypeLabels(dest, "#D9D9D9", texts, values);
 
   // 5) 0 치환
   zeroOutNumbersByRows(dest, texts, values);
@@ -101,10 +103,15 @@ function findFirstCellInBlockContains(
 ========================================================= */
 // ✅ 최적화: 미리 읽어온 texts 파라미터 추가 (getTexts() 호출 제거)
 //           isExactInList 선형 탐색 → Set.has() O(1)
+// ✅ 버그 수정: values도 함께 받아 지워진 셀을 in-memory에서도 갱신
+//             (원본: zeroOutNumbersByRows가 행마다 Excel에서 직접 읽어 항상 최신 상태 참조
+//              최적화본: values를 미리 읽어두므로, 지워진 셀이 반영되지 않으면
+//                       zeroOutNumbersByRows가 stale values를 0으로 다시 씀)
 function clearRightValuesAndFillGrayByTypeLabels(
   dest: ExcelScript.Range,
   hexColor: string,
-  texts: string[][]
+  texts: string[][],
+  values: (string | number | boolean)[][]
 ): void {
   const ws: ExcelScript.Worksheet = dest.getWorksheet();
   const baseRow: number = dest.getRowIndex();
@@ -149,6 +156,11 @@ function clearRightValuesAndFillGrayByTypeLabels(
       if (deleteWidth > 0) {
         const delRange: ExcelScript.Range = ws.getRangeByIndexes(absRow, baseCol + startC, 1, deleteWidth);
         clearRangeContentsSafely(delRange);
+        // ✅ 버그 수정: in-memory values도 ""로 갱신
+        //    (zeroOutNumbersByRows가 stale values로 0을 다시 쓰는 것 방지)
+        for (let dc = startC; dc < cols; dc++) {
+          values[r][dc] = "";
+        }
       }
 
       // (2) 해당 행 회색 채우기: 첫 열(0)과 마지막 열(cols-1) 제외
